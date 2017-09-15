@@ -47,10 +47,10 @@ import sx.blah.discord.util.cache.LongMap;
  * Created by syuchan on 2016/10/08.
  */
 public class Hanashiaite {
-	private static final String DocomoAPIKey = "";
-	private static final String DiscordToken = "";
-	private static final long VoiceChannelID = 217637155693002754L;
-	private static final long NotifyChannelID = 297670949703122947L;
+	private static String DocomoAPIKey;
+	private static String DiscordToken;
+	private static long VoiceChannelID;
+	private static long NotifyChannelID;
 	private static final File configFile = new File("config.properties");
 	private static Properties config = new Properties();
 
@@ -61,6 +61,10 @@ public class Hanashiaite {
 
 	public static void main(String[] args) {
 		loadConfig();
+		DocomoAPIKey = config.getProperty("DocomoAPIKey");
+		DiscordToken = config.getProperty("DiscordToken");
+		VoiceChannelID = Long.parseLong(config.getProperty("VoiceChannelID"));
+		NotifyChannelID = Long.parseLong(config.getProperty("NotifyChannelID"));
 		BukkitWatcher.setCommitModels(
 				config.getProperty("Bukkit", ""),
 				config.getProperty("CraftBukkit", ""),
@@ -79,125 +83,133 @@ public class Hanashiaite {
 		try {
 			discordClient = new ClientBuilder().withToken(DiscordToken).login();
 			EventDispatcher dispatcher = discordClient.getDispatcher();
-			dispatcher.registerListener(new IListener<MessageReceivedEvent>() {
-				@Override
-				public void handle(MessageReceivedEvent event) {
-					IMessage message = event.getMessage();
-					String name = message.getChannel().getName();
-					if (name.equals("hanasiaite") || name.equals("hanashiaite")) {
-						if (message.getContent().equals("$restart")) {
+			if (config.getProperty("Chat").equalsIgnoreCase("true")) {
+				dispatcher.registerListener(new IListener<MessageReceivedEvent>() {
+					@Override
+					public void handle(MessageReceivedEvent event) {
+						IMessage message = event.getMessage();
+						String name = message.getChannel().getName();
+						if (name.equals("hanasiaite") || name.equals("hanashiaite")) {
+							if (message.getContent().equals("$restart")) {
+								try {
+									DialogueRequestParam dialogueRequestParam = new DialogueRequestParam();
+									dialogueRequestParam.setUtt("-restart");
+									contexts.put(name, new Dialogue().request(dialogueRequestParam));
+								} catch (SdkException | ServerException e) {
+									e.printStackTrace();
+								}
+								return;
+							}
+							DialogueRequestParam param = new DialogueRequestParam();
+							param.setUtt(message.getContent());
+							if (contexts.containsKey(name)) {
+								param.setContext(contexts.get(name).getContext());
+								param.setMode(contexts.get(name).getMode());
+							}
+							Dialogue dialogue = new Dialogue();
 							try {
-								DialogueRequestParam dialogueRequestParam = new DialogueRequestParam();
-								dialogueRequestParam.setUtt("-restart");
-								contexts.put(name, new Dialogue().request(dialogueRequestParam));
-							} catch (SdkException | ServerException e) {
+								DialogueResultData resultData = dialogue.request(param);
+								message.getChannel().sendMessage(resultData.getUtt());
+								contexts.put(name, resultData);
+							} catch (SdkException | ServerException | DiscordException | RateLimitException | MissingPermissionsException e) {
 								e.printStackTrace();
 							}
-							return;
 						}
-						DialogueRequestParam param = new DialogueRequestParam();
-						param.setUtt(message.getContent());
-						if (contexts.containsKey(name)) {
-							param.setContext(contexts.get(name).getContext());
-							param.setMode(contexts.get(name).getMode());
-						}
-						Dialogue dialogue = new Dialogue();
+					}
+				});
+			}
+			if (config.getProperty("Notification").equalsIgnoreCase("true")) {
+				dispatcher.registerListener(new IListener<UserVoiceChannelJoinEvent>() {
+					@Override
+					public void handle(UserVoiceChannelJoinEvent event) {
 						try {
-							DialogueResultData resultData = dialogue.request(param);
-							message.getChannel().sendMessage(resultData.getUtt());
-							contexts.put(name, resultData);
-						} catch (SdkException | ServerException | DiscordException | RateLimitException | MissingPermissionsException e) {
+							IChannel voiceTextChannel = discordClient.getChannelByID(VoiceChannelID);
+							IMessage message = voiceTextChannel.sendMessage("$" + event.getUser().getDisplayName(voiceTextChannel.getGuild()) + "さんが" +
+									event.getVoiceChannel().getName() + "に入室しました");
+							addDeleteTask(message);
+						} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
 							e.printStackTrace();
 						}
 					}
-				}
-			});
-			dispatcher.registerListener(new IListener<UserVoiceChannelJoinEvent>() {
-				@Override
-				public void handle(UserVoiceChannelJoinEvent event) {
-					try {
-						IChannel voiceTextChannel = discordClient.getChannelByID(VoiceChannelID);
-						IMessage message = voiceTextChannel.sendMessage("$" + event.getUser().getDisplayName(voiceTextChannel.getGuild()) + "さんが" +
-								event.getVoiceChannel().getName() + "に入室しました");
-						addDeleteTask(message);
-					} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
-						e.printStackTrace();
+				});
+				dispatcher.registerListener(new IListener<UserVoiceChannelLeaveEvent>() {
+					@Override
+					public void handle(UserVoiceChannelLeaveEvent event) {
+						try {
+							IChannel voiceTextChannel = discordClient.getChannelByID(VoiceChannelID);
+							IMessage message = voiceTextChannel.sendMessage("$" +
+									event.getUser().getDisplayName(voiceTextChannel.getGuild()) + "さんが" +
+									event.getVoiceChannel().getName() + "を退室しました");
+							addDeleteTask(message);
+						} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
+							e.printStackTrace();
+						}
 					}
-				}
-			});
-			dispatcher.registerListener(new IListener<UserVoiceChannelLeaveEvent>() {
-				@Override
-				public void handle(UserVoiceChannelLeaveEvent event) {
-					try {
-						IChannel voiceTextChannel = discordClient.getChannelByID(VoiceChannelID);
-						IMessage message = voiceTextChannel.sendMessage("$" +
-								event.getUser().getDisplayName(voiceTextChannel.getGuild()) + "さんが" +
-								event.getVoiceChannel().getName() + "を退室しました");
-						addDeleteTask(message);
-					} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
-						e.printStackTrace();
-					}
-				}
-			});
-			Timer timer = new Timer();
-			timer.schedule(new BukkitWatcher(), 0, TimeUnit.MINUTES.toMillis(30));
-			dispatcher.registerListener(new IListener<MessageReceivedEvent>() {
-				@Override
-				public void handle(MessageReceivedEvent event) {
-					try {
-						IMessage message = event.getMessage();
-						if (message.getContent().equals("-ip")) {
-							LongMap<IVoiceState> connectedVoiceChannels = message.getAuthor().getVoiceStatesLong();
-							if (connectedVoiceChannels.size() < 1) {
-								IMessage iMessage = message.getChannel().sendMessage("$" + "このコマンドはVCに接続してから実行して下さい");
-								addDeleteTask(iMessage);
-								return;
-							}
-							IVoiceChannel textChannel = connectedVoiceChannels.get(0).getChannel();
-							ShardImpl shard = (ShardImpl) textChannel.getShard();
-							Timer leaveTaskTimer = new Timer("VSLeaveTask");
-							leaveTaskTimer.schedule(new TimerTask() {
-								@Override
-								public void run() {
-									Cache<DiscordVoiceWS> voiceWebSockets = shard.voiceWebSockets;
-									for (DiscordVoiceWS voiceWS : voiceWebSockets) {
-										InetSocketAddress inetAddress = null;
-										try {
-											inetAddress = (InetSocketAddress) eventField.get(voiceSocketField.get(voiceWS));
-											byte[] address = inetAddress.getAddress().getAddress();
-											String ip = "";
-											for (int i = 0; i < 4; ++i) {
-												int t = 0xFF & address[i];
-												ip += "." + t;
-											}
-											ip = ip.substring(1);
+				});
+			}
+			if (config.getProperty("Minecraft").equalsIgnoreCase("true")) {
+				Timer timer = new Timer();
+				timer.schedule(new BukkitWatcher(), 0, TimeUnit.MINUTES.toMillis(30));
+			}
+			if (config.getProperty("AskIP").equalsIgnoreCase("true")) {
+				dispatcher.registerListener(new IListener<MessageReceivedEvent>() {
+					@Override
+					public void handle(MessageReceivedEvent event) {
+						try {
+							IMessage message = event.getMessage();
+							if (message.getContent().equals("-ip")) {
+								LongMap<IVoiceState> connectedVoiceChannels = message.getAuthor().getVoiceStatesLong();
+								if (connectedVoiceChannels.size() < 1) {
+									IMessage iMessage = message.getChannel().sendMessage("$" + "このコマンドはVCに接続してから実行して下さい");
+									addDeleteTask(iMessage);
+									return;
+								}
+								IVoiceChannel textChannel = connectedVoiceChannels.get(0).getChannel();
+								ShardImpl shard = (ShardImpl) textChannel.getShard();
+								Timer leaveTaskTimer = new Timer("VSLeaveTask");
+								leaveTaskTimer.schedule(new TimerTask() {
+									@Override
+									public void run() {
+										Cache<DiscordVoiceWS> voiceWebSockets = shard.voiceWebSockets;
+										for (DiscordVoiceWS voiceWS : voiceWebSockets) {
+											InetSocketAddress inetAddress = null;
 											try {
-												IMessage iMessage = message.getChannel().sendMessage("$" + "```Channel: " + textChannel.getName() +
-														"\nEndPoint: " + inetAddress.getHostString() +
-														"\nIP: " + ip + "```");
-												addDeleteTask(iMessage);
-											} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
+												inetAddress = (InetSocketAddress) eventField.get(voiceSocketField.get(voiceWS));
+												byte[] address = inetAddress.getAddress().getAddress();
+												String ip = "";
+												for (int i = 0; i < 4; ++i) {
+													int t = 0xFF & address[i];
+													ip += "." + t;
+												}
+												ip = ip.substring(1);
+												try {
+													IMessage iMessage = message.getChannel().sendMessage("$" + "```Channel: " + textChannel.getName() +
+															"\nEndPoint: " + inetAddress.getHostString() +
+															"\nIP: " + ip + "```");
+													addDeleteTask(iMessage);
+												} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
+													e.printStackTrace();
+												}
+											} catch (IllegalAccessException e) {
 												e.printStackTrace();
 											}
-										} catch (IllegalAccessException e) {
-											e.printStackTrace();
 										}
+										leaveTaskTimer.schedule(new TimerTask() {
+											@Override
+											public void run() {
+												textChannel.leave();
+												leaveTaskTimer.cancel();
+											}
+										}, TimeUnit.SECONDS.toMillis(2));
 									}
-									leaveTaskTimer.schedule(new TimerTask() {
-										@Override
-										public void run() {
-											textChannel.leave();
-											leaveTaskTimer.cancel();
-										}
-									}, TimeUnit.SECONDS.toMillis(2));
-								}
-							}, TimeUnit.SECONDS.toMillis(1));
+								}, TimeUnit.SECONDS.toMillis(1));
+							}
+						} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
+							e.printStackTrace();
 						}
-					} catch (MissingPermissionsException | RateLimitException | DiscordException e) {
-						e.printStackTrace();
 					}
-				}
-			});
+				});
+			}
 		} catch (DiscordException e) {
 			e.printStackTrace();
 		}
@@ -209,7 +221,6 @@ public class Hanashiaite {
 			 BufferedReader reader = new BufferedReader(isr)) {
 			config.load(reader);
 		} catch (Exception ignored) {
-
 		}
 	}
 
