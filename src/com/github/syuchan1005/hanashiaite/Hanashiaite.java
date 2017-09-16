@@ -251,7 +251,7 @@ public class Hanashiaite {
 									event.getChannel().sendMessage(Siritori.WIN);
 									event.getChannel().sendMessage(Siritori.CLEAN_HISTORY);
 									Siritori.HistoryData lastHistory = siritori.getLastHistory();
-									event.getChannel().sendMessage(String.format("**今回の対決は%d回, %sさんの勝ちでした.**", lastHistory.getId() + 1, lastHistory.getSender()));
+									event.getChannel().sendMessage(String.format("**今回の対決は%d回, わたしの勝ちでした.**", lastHistory.getId() + 1, lastHistory.getSender()));
 									try {
 										siritori.init();
 									} catch (SQLException ignored) {

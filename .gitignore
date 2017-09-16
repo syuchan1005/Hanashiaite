@@ -2,3 +2,4 @@
 modules
 *.iml
 config.properties
+src\META-INF

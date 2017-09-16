@@ -2,6 +2,7 @@ package com.github.syuchan1005.hanashiaite;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.SQLException;
@@ -33,14 +34,23 @@ class SiritoriTest {
 	}
 
 	@Test
-	public void testToHiragana() {
+	public void testToHiragana() throws UnsupportedEncodingException {
 		assertEquals("てすと", siritori.toHiragana("テスト"));
+		assertEquals("ぷろぐらみんぐのれいこーどでりようする", siritori.toHiragana("プログラミングの例コードで利用する"));
+	}
+
+	@Test
+	public void testKatakana2Hiragana() {
+		assertEquals("てすと", siritori.katakana2Hiragana("テスト"));
+		assertEquals("こーど", siritori.katakana2Hiragana("コード"));
 	}
 
 	@Test
 	public void testGetLastChar() {
 		assertEquals("と", siritori.getLastChar("てすと"));
 		assertEquals("と", siritori.getLastChar("てすと?"));
+		assertEquals("ん", siritori.getLastChar("んン"));
+		assertEquals("ん", siritori.getLastChar("ンん"));
 	}
 
 	@Test

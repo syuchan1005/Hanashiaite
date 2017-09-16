@@ -2,7 +2,6 @@ package com.github.syuchan1005.hanashiaite;
 
 import com.google.gson.Gson;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -15,16 +14,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import org.atilika.kuromoji.Token;
+import org.atilika.kuromoji.Tokenizer;
 
 public class Siritori {
 	public static final String NOT_MATCH = "**前の解答と合致しません. もういちどお答えください. (前の回答は「%s」, 最後の文字は「%s」です.)**";
@@ -34,6 +31,7 @@ public class Siritori {
 	public static final String CLEAN_HISTORY = "**経歴を削除します...**";
 
 	private static Gson gson = new Gson();
+	private static Tokenizer tokenizer = Tokenizer.builder().build();
 	private static Pattern hiraganaPattern = Pattern.compile("^\\p{InHIRAGANA}+$");
 	private static HttpClient httpClient = HttpClientBuilder.create()
 			.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build()).build();
@@ -130,20 +128,17 @@ public class Siritori {
 	}
 
 	public String toHiragana(String word) {
-		HttpPost post = new HttpPost("https://labs.goo.ne.jp/api/hiragana");
-		ArrayList<NameValuePair> form = new ArrayList<>();
-		form.add(new BasicNameValuePair("app_id", gooAppId));
-		form.add(new BasicNameValuePair("sentence", word));
-		form.add(new BasicNameValuePair("output_type", "hiragana"));
-		post.setEntity(new UrlEncodedFormEntity(form, StandardCharsets.UTF_8));
-		try {
-			HttpResponse response = httpClient.execute(post);
-			String body = EntityUtils.toString(response.getEntity());
-			GooLabData data = gson.fromJson(body, GooLabData.class);
-			return data.converted;
-		} catch (IOException ignored) {
+		StringBuilder sb = new StringBuilder();
+		for (Token token : tokenizer.tokenize(word)) {
+			if (token.getSurfaceForm().contains("ー")) {
+			}
+			if (token.getReading() != null) {
+				sb.append(token.getReading());
+			} else {
+				sb.append(token.getSurfaceForm());
+			}
 		}
-		return "";
+		return katakana2Hiragana(sb.toString());
 	}
 
 	public String getLastChar(String word) {
@@ -192,6 +187,18 @@ public class Siritori {
 		} else {
 			offset.put(c, 1);
 		}
+	}
+
+	public String katakana2Hiragana(String str) {
+		StringBuilder sb = new StringBuilder();
+		for (char c : str.toCharArray()) {
+			if (('ァ' <= c) && (c <= 'ヶ')) {
+				sb.append((char) (c - 0x60));
+			} else {
+				sb.append(c);
+			}
+		}
+		return sb.toString();
 	}
 
 	public class HistoryData {
