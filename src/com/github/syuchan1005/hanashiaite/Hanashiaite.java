@@ -1,5 +1,6 @@
 package com.github.syuchan1005.hanashiaite;
 
+import com.google.gson.Gson;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,7 +11,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
+import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Timer;
@@ -51,9 +54,11 @@ public class Hanashiaite {
 	private static String DiscordToken;
 	private static long VoiceChannelID;
 	private static long NotifyChannelID;
+	private static long SiritoriChannelID;
 	private static final File configFile = new File("config.properties");
 	private static Properties config = new Properties();
 
+	private static Gson gson = new Gson();
 	private static Map<String, DialogueResultData> contexts;
 	private static IDiscordClient discordClient;
 	private static Field voiceSocketField;
@@ -65,6 +70,7 @@ public class Hanashiaite {
 		DiscordToken = config.getProperty("DiscordToken");
 		VoiceChannelID = Long.parseLong(config.getProperty("VoiceChannelID"));
 		NotifyChannelID = Long.parseLong(config.getProperty("NotifyChannelID"));
+		SiritoriChannelID = Long.parseLong(config.getProperty("SiritoriChannelID"));
 		BukkitWatcher.setCommitModels(
 				config.getProperty("Bukkit", ""),
 				config.getProperty("CraftBukkit", ""),
@@ -210,6 +216,68 @@ public class Hanashiaite {
 					}
 				});
 			}
+			if (config.getProperty("ShowMem").equalsIgnoreCase("true")) {
+				Runtime runtime = Runtime.getRuntime();
+				Timer memRefreshTimer = new Timer();
+				memRefreshTimer.schedule(new TimerTask() {
+					@Override
+					public void run() {
+						long usage = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024;
+						discordClient.changePlayingText("Usage: " + usage + "MB");
+					}
+				}, TimeUnit.SECONDS.toMillis(5), TimeUnit.SECONDS.toMillis(1));
+			}
+			if (config.getProperty("Siritori").equalsIgnoreCase("true")) {
+				try {
+					Siritori siritori = new Siritori(config.getProperty("GooLabsAppID"));
+					dispatcher.registerListener(new IListener<MessageReceivedEvent>() {
+						@Override
+						public void handle(MessageReceivedEvent event) {
+							if (event.getChannel().getLongID() != SiritoriChannelID) return;
+							try {
+								String word = event.getMessage().getContent();
+								if (!siritori.isFollowed(word)) {
+									String lastWordPhonetic = siritori.getLastWordPhonetic();
+									event.getChannel().sendMessage(String.format(Siritori.NOT_MATCH, lastWordPhonetic, siritori.getLastChar(lastWordPhonetic)));
+									return;
+								}
+								Siritori.HistoryData history = siritori.getHistory(word);
+								if (history != null) {
+									event.getChannel().sendMessage(String.format(Siritori.USED_WORD, history.getId() + 1, history.getSender()));
+									return;
+								}
+								if (siritori.isFinished(word)) {
+									event.getChannel().sendMessage(Siritori.WIN);
+									event.getChannel().sendMessage(Siritori.CLEAN_HISTORY);
+									try {
+										siritori.init();
+									} catch (SQLException ignored) {
+									}
+									return;
+								}
+								siritori.insertHistory(event.getAuthor().getName(), word);
+								List<String> returnWords = siritori.getReturnWords(word);
+								String last = siritori.getLastChar(word);
+								for (String returnWord : returnWords) {
+									siritori.incrementOffset(last);
+									if (siritori.getHistory(returnWord) == null && !siritori.isFinished(returnWord)) {
+										event.getChannel().sendMessage(returnWord);
+										siritori.insertHistory("Hanashiaite", returnWord);
+										return;
+									}
+								}
+								event.getChannel().sendMessage(Siritori.LOSE);
+								event.getChannel().sendMessage(Siritori.CLEAN_HISTORY);
+								siritori.init();
+							} catch (SQLException ignored) {
+								ignored.printStackTrace();
+							}
+						}
+					});
+				} catch (SQLException e) {
+					e.printStackTrace();
+				}
+			}
 		} catch (DiscordException e) {
 			e.printStackTrace();
 		}
@@ -275,4 +343,5 @@ public class Hanashiaite {
 		};
 		deleteTaskTimer.schedule(task, TimeUnit.SECONDS.toMillis(30));
 	}
+
 }

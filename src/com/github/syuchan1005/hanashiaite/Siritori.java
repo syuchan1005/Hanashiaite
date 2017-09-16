@@ -1,0 +1,238 @@
+package com.github.syuchan1005.hanashiaite;
+
+import com.google.gson.Gson;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.regex.Pattern;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.CookieSpecs;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
+import org.sqlite.SQLiteConfig;
+
+public class Siritori {
+	public static final String NOT_MATCH = "**前の解答と合致しません. もういちどお答えください. (前の回答は「%s」, 最後の文字は「%s」です.)**";
+	public static final String USED_WORD = "**すでに使われたワードです.もういちどお答えください. (解答は%d回目に%sさんが使いました.)**";
+	public static final String WIN = "**最後に「ん」がついたのであなたの負けです.**";
+	public static final String LOSE = "**負けてしまいました... 強いですね. つぎはがんばります.**";
+	public static final String CLEAN_HISTORY = "**経歴を削除します...**";
+
+	private static Gson gson = new Gson();
+	private static Pattern hiraganaPattern = Pattern.compile("^\\p{InHIRAGANA}+$");
+	private static HttpClient httpClient = HttpClientBuilder.create()
+			.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build()).build();
+
+	private String gooAppId;
+	private Connection connection;
+	private PreparedStatement historyInsertStatement;
+	private PreparedStatement historySelectStatement;
+	private PreparedStatement lastPhoneticStatement;
+	/*private PreparedStatement offSetSelectStatement;
+	private PreparedStatement offSetInsertStatement;
+	private PreparedStatement offSetIncrementStatement;*/
+	private Map<Character, Integer> offset = new HashMap<>();
+
+	public Siritori(String gooAppId) throws SQLException {
+		this.gooAppId = gooAppId;
+		init();
+	}
+
+	public void init() throws SQLException {
+		if (connection != null) connection.close();
+		connection = DriverManager.getConnection("jdbc:sqlite::memory:");
+		Statement statement = connection.createStatement();
+		statement.executeUpdate("CREATE TABLE History(id INTEGER PRIMARY KEY, sender TEXT NOT NULL, word TEXT NOT NULL UNIQUE, phonetic TEXT NOT NULL)");
+		// statement.executeUpdate("CREATE TABLE Offset(last TEXT PRIMARY KEY, offset INTEGER)");
+		historyInsertStatement = connection.prepareStatement("INSERT INTO History(sender, word, phonetic) VALUES (?, ?, ?)");
+		historySelectStatement = connection.prepareStatement("SELECT * FROM History WHERE word LIKE ?");
+		lastPhoneticStatement = connection.prepareStatement("SELECT phonetic FROM History ORDER BY id DESC LIMIT 1");
+		/*offSetSelectStatement = connection.prepareStatement("SELECT offset FROM Offset WHERE last LIKE ?");
+		offSetInsertStatement = connection.prepareStatement("INSERT INTO Offset VALUES (?, ?)");
+		offSetIncrementStatement = connection.prepareStatement("UPDATE Offset SET offset = offset + 1 WHERE last LIKE ?");*/
+	}
+
+	public boolean isFollowed(String word) throws SQLException {
+		String lastWordPhonetic = getLastWordPhonetic();
+		return lastWordPhonetic.isEmpty() || toHiragana(word).startsWith(toHiragana(getLastChar(lastWordPhonetic)));
+	}
+
+	public boolean isFinished(String word) {
+		return getLastChar(word).equals("ん");
+	}
+
+	public HistoryData getHistory(String word) throws SQLException {
+		historySelectStatement.setString(1, word);
+		ResultSet resultSet = historySelectStatement.executeQuery();
+		if (resultSet.next()) {
+			return new HistoryData(resultSet.getInt(1),
+					resultSet.getString(2),
+					resultSet.getString(3),
+					resultSet.getString(4));
+		} else {
+			return null;
+		}
+	}
+
+	public void insertHistory(String sender, String word) throws SQLException {
+		historyInsertStatement.setString(1, sender);
+		historyInsertStatement.setString(2, word);
+		historyInsertStatement.setString(3, toHiragana(word));
+		historyInsertStatement.executeUpdate();
+	}
+
+	public List<String> getReturnWords(String word) throws SQLException {
+		String last = getLastChar(word);
+		String url = "https://ja.wikipedia.org/w/api.php?format=json&action=query&list=search&srprop=sectiontitle" +
+				"&srsearch=prefix:" + last +
+				"&sroffset=" + getOffset(last);
+		HttpGet httpGet = new HttpGet(url);
+		ArrayList<String> list = new ArrayList<>();
+		try {
+			HttpResponse response = httpClient.execute(httpGet);
+			if (response.getStatusLine().getStatusCode() == 200) {
+				String body = EntityUtils.toString(response.getEntity());
+				MediaWikiData mediaWikiData = gson.fromJson(body, MediaWikiData.class);
+				mediaWikiData.query.search.forEach((v) -> list.add(v.title));
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return list;
+	}
+
+	public String getLastWordPhonetic() throws SQLException {
+		ResultSet resultSet = lastPhoneticStatement.executeQuery();
+		while (resultSet.next()) {
+			return resultSet.getString(1);
+		}
+		return "";
+	}
+
+	public String toHiragana(String word) {
+		HttpPost post = new HttpPost("https://labs.goo.ne.jp/api/hiragana");
+		ArrayList<NameValuePair> form = new ArrayList<>();
+		form.add(new BasicNameValuePair("app_id", gooAppId));
+		form.add(new BasicNameValuePair("sentence", word));
+		form.add(new BasicNameValuePair("output_type", "hiragana"));
+		post.setEntity(new UrlEncodedFormEntity(form, StandardCharsets.UTF_8));
+		try {
+			HttpResponse response = httpClient.execute(post);
+			String body = EntityUtils.toString(response.getEntity());
+			GooLabData data = gson.fromJson(body, GooLabData.class);
+			return data.converted;
+		} catch (IOException ignored) {
+		}
+		return "";
+	}
+
+	public String getLastChar(String word) {
+		if (!isHiragana(word)) word = toHiragana(word);
+		for (int i = word.length(); i >= 1; i--) {
+			String s = word.substring(i - 1, i);
+			if (isHiragana(s)) return toUpperCaseJP(s);
+		}
+		return "";
+	}
+
+	private boolean isHiragana(String word) {
+		return hiraganaPattern.matcher(word).find();
+	}
+
+	private static final String lower = "ぁぃぅぇぉっゃゅょゎァィゥェォヵヶッャュョヮ";
+	private static final String upper = "あいうえおつやゆよわアイウエオカケツヤユヨワ";
+	private static String toUpperCaseJP(String word) {
+		StringBuilder sb = new StringBuilder();
+		for (char c : word.toCharArray()) {
+			int i = lower.indexOf((int) c);
+			if (i == -1) {
+				sb.append(c);
+			} else {
+				sb.append(upper.charAt(i));
+			}
+		}
+		return sb.toString();
+	}
+
+	public int getOffset(String last) throws SQLException {
+		char c = last.toCharArray()[0];
+		if (offset.containsKey(c)) {
+			return offset.get(c);
+		} else {
+			offset.put(c, 0);
+		}
+		return 0;
+	}
+
+	public void incrementOffset(String last) throws SQLException {
+		char c = last.toCharArray()[0];
+		if (offset.containsKey(c)) {
+			offset.put(c, offset.get(c) + 1);
+		} else {
+			offset.put(c, 1);
+		}
+	}
+
+	public class HistoryData {
+		private int id;
+		private String sender;
+		private String word;
+		private String phonetic;
+
+		public HistoryData(int id, String sender, String word, String phonetic) {
+			this.id = id;
+			this.sender = sender;
+			this.word = word;
+			this.phonetic = phonetic;
+		}
+
+		public int getId() {
+			return id;
+		}
+
+		public String getSender() {
+			return sender;
+		}
+
+		public String getWord() {
+			return word;
+		}
+
+		public String getPhonetic() {
+			return phonetic;
+		}
+	}
+
+	private class MediaWikiData {
+		MediaWikiQuery query;
+
+		class MediaWikiQuery {
+			List<MediaWikiSearchData> search;
+
+			class MediaWikiSearchData {
+				String title;
+			}
+		}
+	}
+
+	private class GooLabData {
+		String converted;
+	}
+}
