@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.regex.Pattern;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
@@ -26,7 +25,6 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
-import org.sqlite.SQLiteConfig;
 
 public class Siritori {
 	public static final String NOT_MATCH = "**前の解答と合致しません. もういちどお答えください. (前の回答は「%s」, 最後の文字は「%s」です.)**";
@@ -44,7 +42,7 @@ public class Siritori {
 	private Connection connection;
 	private PreparedStatement historyInsertStatement;
 	private PreparedStatement historySelectStatement;
-	private PreparedStatement lastPhoneticStatement;
+	private PreparedStatement lastHistoryStatement;
 	/*private PreparedStatement offSetSelectStatement;
 	private PreparedStatement offSetInsertStatement;
 	private PreparedStatement offSetIncrementStatement;*/
@@ -60,13 +58,9 @@ public class Siritori {
 		connection = DriverManager.getConnection("jdbc:sqlite::memory:");
 		Statement statement = connection.createStatement();
 		statement.executeUpdate("CREATE TABLE History(id INTEGER PRIMARY KEY, sender TEXT NOT NULL, word TEXT NOT NULL UNIQUE, phonetic TEXT NOT NULL)");
-		// statement.executeUpdate("CREATE TABLE Offset(last TEXT PRIMARY KEY, offset INTEGER)");
 		historyInsertStatement = connection.prepareStatement("INSERT INTO History(sender, word, phonetic) VALUES (?, ?, ?)");
 		historySelectStatement = connection.prepareStatement("SELECT * FROM History WHERE word LIKE ?");
-		lastPhoneticStatement = connection.prepareStatement("SELECT phonetic FROM History ORDER BY id DESC LIMIT 1");
-		/*offSetSelectStatement = connection.prepareStatement("SELECT offset FROM Offset WHERE last LIKE ?");
-		offSetInsertStatement = connection.prepareStatement("INSERT INTO Offset VALUES (?, ?)");
-		offSetIncrementStatement = connection.prepareStatement("UPDATE Offset SET offset = offset + 1 WHERE last LIKE ?");*/
+		lastHistoryStatement = connection.prepareStatement("SELECT * FROM History ORDER BY id DESC LIMIT 1");
 	}
 
 	public boolean isFollowed(String word) throws SQLException {
@@ -118,12 +112,21 @@ public class Siritori {
 		return list;
 	}
 
-	public String getLastWordPhonetic() throws SQLException {
-		ResultSet resultSet = lastPhoneticStatement.executeQuery();
+	public HistoryData getLastHistory() throws SQLException {
+		ResultSet resultSet = lastHistoryStatement.executeQuery();
 		while (resultSet.next()) {
-			return resultSet.getString(1);
+			return new HistoryData(resultSet.getInt(1),
+					resultSet.getString(2),
+					resultSet.getString(3),
+					resultSet.getString(4));
 		}
-		return "";
+		return null;
+	}
+
+	public String getLastWordPhonetic() throws SQLException {
+		HistoryData lastHistory = getLastHistory();
+		if (lastHistory == null) return "";
+		return lastHistory.getPhonetic();
 	}
 
 	public String toHiragana(String word) {
@@ -147,7 +150,7 @@ public class Siritori {
 		if (!isHiragana(word)) word = toHiragana(word);
 		for (int i = word.length(); i >= 1; i--) {
 			String s = word.substring(i - 1, i);
-			if (isHiragana(s)) return toUpperCaseJP(s);
+			if (isHiragana(s)) return normalizeJP(s);
 		}
 		return "";
 	}
@@ -156,9 +159,10 @@ public class Siritori {
 		return hiraganaPattern.matcher(word).find();
 	}
 
-	private static final String lower = "ぁぃぅぇぉっゃゅょゎァィゥェォヵヶッャュョヮ";
-	private static final String upper = "あいうえおつやゆよわアイウエオカケツヤユヨワ";
-	private static String toUpperCaseJP(String word) {
+	private static final String lower = "ぁぃぅぇぉっゃゅょゎァィゥェォヵヶッャュョヮゑゐ";
+	private static final String upper = "あいうえおつやゆよわアイウエオカケツヤユヨワえい";
+
+	private static String normalizeJP(String word) {
 		StringBuilder sb = new StringBuilder();
 		for (char c : word.toCharArray()) {
 			int i = lower.indexOf((int) c);
@@ -217,6 +221,16 @@ public class Siritori {
 
 		public String getPhonetic() {
 			return phonetic;
+		}
+
+		@Override
+		public String toString() {
+			return "HistoryData{" +
+					"id=" + id +
+					", sender='" + sender + '\'' +
+					", word='" + word + '\'' +
+					", phonetic='" + phonetic + '\'' +
+					'}';
 		}
 	}
 

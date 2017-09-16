@@ -41,6 +41,7 @@ import sx.blah.discord.handle.obj.IMessage;
 import sx.blah.discord.handle.obj.IVoiceChannel;
 import sx.blah.discord.handle.obj.IVoiceState;
 import sx.blah.discord.util.DiscordException;
+import sx.blah.discord.util.EmbedBuilder;
 import sx.blah.discord.util.MissingPermissionsException;
 import sx.blah.discord.util.RateLimitException;
 import sx.blah.discord.util.cache.Cache;
@@ -249,6 +250,8 @@ public class Hanashiaite {
 								if (siritori.isFinished(word)) {
 									event.getChannel().sendMessage(Siritori.WIN);
 									event.getChannel().sendMessage(Siritori.CLEAN_HISTORY);
+									Siritori.HistoryData lastHistory = siritori.getLastHistory();
+									event.getChannel().sendMessage(String.format("**今回の対決は%d回, %sさんの勝ちでした.**", lastHistory.getId() + 1, lastHistory.getSender()));
 									try {
 										siritori.init();
 									} catch (SQLException ignored) {
@@ -268,6 +271,8 @@ public class Hanashiaite {
 								}
 								event.getChannel().sendMessage(Siritori.LOSE);
 								event.getChannel().sendMessage(Siritori.CLEAN_HISTORY);
+								Siritori.HistoryData lastHistory = siritori.getLastHistory();
+								event.getChannel().sendMessage(String.format("**今回の対決は%d回, %sさんの勝ちでした.**", lastHistory.getId() + 1, lastHistory.getSender()));
 								siritori.init();
 							} catch (SQLException ignored) {
 								ignored.printStackTrace();

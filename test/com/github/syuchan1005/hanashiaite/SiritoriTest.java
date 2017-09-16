@@ -94,8 +94,8 @@ class SiritoriTest {
 	}
 
 	@Test
-	public void testToUpperCaseJP() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
-		Method toUpperCaseJP = getPrivateMethod(Siritori.class, "toUpperCaseJP", String.class);
+	public void testNormalizeJP() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+		Method toUpperCaseJP = getPrivateMethod(Siritori.class, "normalizeJP", String.class);
 		assertEquals("あいうえおつやゆよわアイウエオカケツヤユヨワ",
 				toUpperCaseJP.invoke(siritori, "ぁぃぅぇぉっゃゅょゎァィゥェォヵヶッャュョヮ"));
 	}
